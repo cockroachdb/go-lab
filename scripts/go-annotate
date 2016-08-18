@@ -1,0 +1,33 @@
+#!/bin/bash
+# This is a script that runs go build with the `-m` gcflag (which outputs
+# details about escape analysis and inlining choices) and annotates the source
+# files in the current directory with the resulting messages. The annotated
+# files are put into ./annotated/
+
+set -e
+
+mkdir -p annotated
+
+BLDOUT=`mktemp`
+trap "rm -f $BLDOUT" EXIT
+
+SEDSCRIPT=`mktemp`
+trap "rm -f $SEDSCRIPT" EXIT
+
+go build -gcflags='-m' >$BLDOUT 2>&1
+
+# Sample output of command above:
+#   # github.com/RaduBerinde/playground/escape-test
+#   /go/src/github.com/RaduBerinde/playground/escape-test/main.go:7: can inline cucu.func1
+#   /go/src/github.com/RaduBerinde/playground/escape-test/main.go:7: func literal escapes to heap
+#
+# We convert each line to a sed expression that appends the message as a comment.
+
+for FILE in *.go; do
+  # The following command converts lines from:
+  #   /go/src/github.com/RaduBerinde/playground/escape-test/main.go:7: can inline cucu.func1
+  # to
+  #   '7 s#$#  // can inline cucu.func1#'
+  grep "$FILE:" $BLDOUT | sed 's|^.*'$FILE':\([0-9]*\): \(.*$\)|\1 s#$#  // \2#|' >$SEDSCRIPT
+  sed -f $SEDSCRIPT $FILE >annotated/$FILE
+done
